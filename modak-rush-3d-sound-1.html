@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modak Rush - Ganesh Chaturthi</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    background: #ff9d2e;
+    touch-action: none;
+}
+
+canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+}
+
+#hud {
+    position: fixed;
+    top: 12px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 15px;
+    z-index: 5;
+    color: white;
+    font-weight: bold;
+}
+
+.badge {
+    background: #8d240b;
+    padding: 9px 14px;
+    border-radius: 20px;
+    box-shadow: 0 4px 10px #0005;
+}
+
+#message {
+    position: fixed;
+    top: 75px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff3b0;
+    color: #7b2b00;
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-weight: bold;
+    opacity: 0;
+    z-index: 10;
+}
+
+#screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0008;
+    z-index: 20;
+    padding: 20px;
+}
+
+.card {
+    width: min(520px, 94vw);
+    background: #fff8e9;
+    border: 3px solid #ffb300;
+    border-radius: 25px;
+    padding: 30px;
+    text-align: center;
+    box-shadow: 0 15px 60px #0007;
+}
+
+.card h1 {
+    color: #9d2709;
+    font-size: clamp(38px, 10vw, 62px);
+    margin-bottom: 8px;
+}
+
+.card h2 {
+    color: #e46b00;
+    margin-bottom: 15px;
+}
+
+.card p {
+    color: #55321e;
+    line-height: 1.5;
+    margin: 12px 0;
+}
+
+button {
+    border: none;
+    border-radius: 15px;
+    background: #e84b16;
+    color: white;
+    font-size: 19px;
+    font-weight: bold;
+    padding: 14px 28px;
+    cursor: pointer;
+    box-shadow: 0 5px 0 #a62c0d;
+    margin-top: 10px;
+}
+
+button:active {
+    transform: translateY(3px);
+    box-shadow: 0 2px 0 #a62c0d;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.small {
+    margin-top: 15px;
+    font-size: 13px;
+    color: #795548;
+}
+</style>
+
+<!-- 3D + Sound enhancement -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<style>
+  #threeLayer{
+    position:fixed; inset:0; width:100vw; height:100vh;
+    pointer-events:none; z-index:1; opacity:.9;
+  }
+  #hud,#message,#screen{z-index:5}
+  #soundBtn{
+    position:fixed; right:12px; bottom:12px; z-index:30;
+    border:0; border-radius:50%; width:50px; height:50px;
+    background:#8d240b; color:#fff; font-size:22px;
+    box-shadow:0 4px 12px #0006; cursor:pointer;
+  }
+</style>
+
+</head>
+
+<body>
+
+<canvas id="threeLayer" aria-hidden="true"></canvas>
+<button id="soundBtn" type="button" title="Toggle sound" aria-label="Toggle sound">🔊</button>
+
+
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+    <div class="badge">🪔 Score: <span id="score">0</span></div>
+    <div class="badge">🏆 Best: <span id="best">0</span></div>
+    <div class="badge">⏱️ <span id="time">60</span></div>
+</div>
+
+<div id="message"></div>
+
+<div id="screen">
+    <div class="card">
+        <div style="font-size:60px">🐭 🪔</div>
+
+        <h1>MODAK RUSH</h1>
+
+        <h2>Ganesh Chaturthi Festival Dash</h2>
+
+        <p>
+            Help <b>Mushak</b> collect sacred modaks and flowers
+            before the festival timer ends!
+        </p>
+
+        <p>
+            🍯 Modak = +10<br>
+            🌸 Flower = +20<br>
+            🥥 Obstacle = -25<br>
+            💣 Bomb = -40
+        </p>
+
+        <p>
+            <b>Controls:</b><br>
+            💻 Use ← → or A / D<br>
+            📱 Touch and drag left or right
+        </p>
+
+        <button onclick="startGame()">START GAME</button>
+
+        <div class="small">
+            60 seconds • Increasing difficulty • Beat your high score!
+        </div>
+    </div>
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H, dpr;
+
+let player;
+let items = [];
+let obstacles = [];
+let particles = [];
+
+let score = 0;
+let best = Number(localStorage.getItem("modakBest") || 0);
+let timeLeft = 60;
+
+let running = false;
+let lastTime = 0;
+let spawnTimer = 0;
+let combo = 0;
+let level = 1;
+
+let keys = {};
+let touchX = null;
+
+document.getElementById("best").textContent = best;
+
+
+/* ---------------- RESIZE ---------------- */
+
+function resize() {
+
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+
+/* ---------------- START ---------------- */
+
+function startGame() {
+
+    score = 0;
+    timeLeft = 60;
+    combo = 0;
+    level = 1;
+
+    items = [];
+    obstacles = [];
+    particles = [];
+
+    player = {
+        x: W / 2,
+        y: H - 105,
+        vx: 0
+    };
+
+    document.getElementById("score").textContent = "0";
+    document.getElementById("time").textContent = "60";
+
+    document.getElementById("screen").classList.add("hidden");
+    document.getElementById("hud").classList.remove("hidden");
+
+    running = true;
+    lastTime = performance.now();
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+/* ---------------- KEYBOARD ---------------- */
+
+window.addEventListener("keydown", function(e) {
+
+    keys[e.key.toLowerCase()] = true;
+
+    if (
+        e.key.toLowerCase() === "arrowleft" ||
+        e.key.toLowerCase() === "arrowright" ||
+        e.key === " "
+    ) {
+        e.preventDefault();
+    }
+});
+
+window.addEventListener("keyup", function(e) {
+    keys[e.key.toLowerCase()] = false;
+});
+
+
+/* ---------------- TOUCH ---------------- */
+
+canvas.addEventListener("pointerdown", function(e) {
+    touchX = e.clientX;
+});
+
+canvas.addEventListener("pointermove", function(e) {
+
+    if (touchX !== null) {
+        touchX = e.clientX;
+    }
+
+});
+
+window.addEventListener("pointerup", function() {
+    touchX = null;
+});
+
+
+/* ---------------- MESSAGE ---------------- */
+
+function showMessage(text) {
+
+    const msg = document.getElementById("message");
+
+    msg.textContent = text;
+    msg.style.opacity = "1";
+
+    clearTimeout(showMessage.timer);
+
+    showMessage.timer = setTimeout(function() {
+        msg.style.opacity = "0";
+    }, 900);
+}
+
+
+/* ---------------- SCORE ---------------- */
+
+function addScore(amount) {
+
+    score += amount;
+    combo++;
+
+    if (combo === 5) {
+
+        score += 50;
+
+        showMessage("🔥 5X COMBO! +50");
+
+        combo = 0;
+    }
+
+    if (score > best) {
+
+        best = score;
+
+        localStorage.setItem(
+            "modakBest",
+            best
+        );
+
+        document.getElementById("best").textContent = best;
+    }
+
+    document.getElementById("score").textContent = score;
+}
+
+
+/* ---------------- SPAWN ITEMS ---------------- */
+
+function spawnItem() {
+
+    const good = Math.random() < 0.78;
+
+    items.push({
+
+        x: 40 + Math.random() * (W - 80),
+
+        y: -40,
+
+        r: good ? 22 : 20,
+
+        type: good
+            ? (Math.random() < 0.82 ? "modak" : "flower")
+            : "bomb",
+
+        speed:
+            190 +
+            level * 22 +
+            Math.random() * 80,
+
+        rotation: Math.random() * Math.PI * 2
+
+    });
+}
+
+
+/* ---------------- SPAWN OBSTACLE ---------------- */
+
+function spawnObstacle() {
+
+    obstacles.push({
+
+        x: 35 + Math.random() * (W - 70),
+
+        y: -40,
+
+        width: 45,
+
+        height: 45,
+
+        speed: 210 + level * 25
+
+    });
+}
+
+
+/* ---------------- PARTICLES ---------------- */
+
+function createParticles(x, y, symbol) {
+
+    for (let i = 0; i < 12; i++) {
+
+        particles.push({
+
+            x: x,
+            y: y,
+
+            vx: (Math.random() - 0.5) * 180,
+
+            vy: (Math.random() - 0.8) * 180,
+
+            life: 0.7,
+
+            symbol: symbol
+
+        });
+    }
+}
+
+
+/* ---------------- BACKGROUND ---------------- */
+
+function drawBackground() {
+
+    const gradient =
+        ctx.createLinearGradient(0, 0, 0, H);
+
+    gradient.addColorStop(0, "#ff9d2e");
+    gradient.addColorStop(0.5, "#ffe3a1");
+    gradient.addColorStop(1, "#ff7b28");
+
+    ctx.fillStyle = gradient;
+
+    ctx.fillRect(0, 0, W, H);
+
+
+    /* Sun */
+
+    ctx.fillStyle = "#ffd54f";
+
+    ctx.beginPath();
+
+    ctx.arc(
+        W * 0.82,
+        H * 0.18,
+        55,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+
+    /* Festival rope */
+
+    ctx.strokeStyle = "#7e1d08";
+
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+
+    ctx.moveTo(0, 70);
+
+    ctx.quadraticCurveTo(
+        W / 2,
+        125,
+        W,
+        70
+    );
+
+    ctx.stroke();
+
+
+    /* Flags */
+
+    for (let x = 20; x < W; x += 55) {
+
+        ctx.fillStyle =
+            x % 110
+            ? "#e6391a"
+            : "#188b65";
+
+        ctx.beginPath();
+
+        ctx.moveTo(x, 83);
+        ctx.lineTo(x + 15, 105);
+        ctx.lineTo(x + 30, 83);
+
+        ctx.fill();
+    }
+
+
+    /* Ground */
+
+    ctx.fillStyle = "#7b2d16";
+
+    ctx.fillRect(
+        0,
+        H - 48,
+        W,
+        48
+    );
+
+
+    ctx.fillStyle = "#d96c1a";
+
+    for (let x = 0; x < W; x += 36) {
+
+        ctx.fillRect(
+            x,
+            H - 48,
+            18,
+            48
+        );
+    }
+
+
+    /* Om */
+
+    ctx.font = "52px serif";
+
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "#7e1d08";
+
+    ctx.fillText(
+        "ॐ",
+        W / 2,
+        62
+    );
+}
+
+
+/* ---------------- MOUSE CHARACTER ---------------- */
+
+function drawMushak() {
+
+    ctx.save();
+
+    ctx.translate(
+        player.x,
+        player.y
+    );
+
+
+    /* Shadow */
+
+    ctx.fillStyle = "#0003";
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+        0,
+        28,
+        30,
+        8,
+        0,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+
+    /* Body */
+
+    ctx.fillStyle = "#5b2b1b";
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+        0,
+        0,
+        27,
+        22,
+        0,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+
+    /* Ears */
+
+    ctx.fillStyle = "#6f3724";
+
+    ctx.beginPath();
+
+    ctx.arc(-18, -18, 12, 0, Math.PI * 2);
+
+    ctx.arc(18, -18, 12, 0, Math.PI * 2);
+
+    ctx.fill();
+
+
+    /* Inner ears */
+
+    ctx.fillStyle = "#f5a0a0";
+
+    ctx.beginPath();
+
+    ctx.arc(-18, -18, 6, 0, Math.PI * 2);
+
+    ctx.arc(18, -18, 6, 0, Math.PI * 2);
+
+    ctx.fill();
+
+
+    /* Eyes */
+
+    ctx.fillStyle = "#111";
+
+    ctx.beginPath();
+
+    ctx.arc(-9, -3, 3, 0, Math.PI * 2);
+
+    ctx.arc(9, -3, 3, 0, Math.PI * 2);
+
+    ctx.fill();
+
+
+    /* Nose */
+
+    ctx.fillStyle = "#f2b3a0";
+
+    ctx.beginPath();
+
+    ctx.arc(0, 7, 5, 0, Math.PI * 2);
+
+    ctx.fill();
+
+
+    /* Tail */
+
+    ctx.strokeStyle = "#5b2b1b";
+
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+
+    ctx.moveTo(25, 12);
+
+    ctx.quadraticCurveTo(
+        48,
+        20,
+        38,
+        34
+    );
+
+    ctx.stroke();
+
+
+    ctx.restore();
+}
+
+
+/* ---------------- ITEMS ---------------- */
+
+function drawItem(item) {
+
+    ctx.save();
+
+    ctx.translate(
+        item.x,
+        item.y
+    );
+
+    ctx.rotate(item.rotation);
+
+
+    /* MODAK */
+
+    if (item.type === "modak") {
+
+        ctx.fillStyle = "#ffd54a";
+
+        ctx.strokeStyle = "#b86b00";
+
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+
+        ctx.moveTo(0, -23);
+
+        for (let i = 0; i < 8; i++) {
+
+            const angle =
+                -Math.PI / 2 +
+                i * Math.PI / 4;
+
+            ctx.lineTo(
+                Math.cos(angle) * 20,
+                Math.sin(angle) * 20
+            );
+        }
+
+        ctx.closePath();
+
+        ctx.fill();
+        ctx.stroke();
+
+
+        ctx.fillStyle = "#fff3b0";
+
+        for (let i = 0; i < 4; i++) {
+
+            ctx.beginPath();
+
+            ctx.arc(
+                -7 + i * 5,
+                -4,
+                2,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fill();
+        }
+
+    }
+
+
+    /* FLOWER */
+
+    else if (item.type === "flower") {
+
+        ctx.fillStyle = "#e83d2e";
+
+        for (let i = 0; i < 6; i++) {
+
+            ctx.rotate(Math.PI / 3);
+
+            ctx.beginPath();
+
+            ctx.ellipse(
+                0,
+                -13,
+                7,
+                14,
+                0,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fill();
+        }
+
+        ctx.fillStyle = "#ffd34e";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            7,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+    }
+
+
+    /* BOMB */
+
+    else {
+
+        ctx.fillStyle = "#333";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            0,
+            0,
+            21,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+        ctx.fillStyle = "#ff5555";
+
+        ctx.font = "22px Arial";
+
+        ctx.textAlign = "center";
+
+        ctx.fillText(
+            "!",
+            0,
+            8
+        );
+    }
+
+    ctx.restore();
+}
+
+
+/* ---------------- OBSTACLE ---------------- */
+
+function drawObstacle(obstacle) {
+
+    ctx.fillStyle = "#8b3d1f";
+
+    ctx.beginPath();
+
+    ctx.roundRect(
+        obstacle.x,
+        obstacle.y,
+        obstacle.width,
+        obstacle.height,
+        12
+    );
+
+    ctx.fill();
+
+
+    ctx.fillStyle = "#d77a31";
+
+    ctx.fillRect(
+        obstacle.x + 6,
+        obstacle.y + 8,
+        obstacle.width - 12,
+        8
+    );
+
+
+    ctx.font = "24px Arial";
+
+    ctx.textAlign = "center";
+
+    ctx.fillText(
+        "🥥",
+        obstacle.x + obstacle.width / 2,
+        obstacle.y + 34
+    );
+}
+
+
+/* ---------------- COLLISION ---------------- */
+
+function circleRect(
+    px,
+    py,
+    radius,
+    rect
+) {
+
+    const x = Math.max(
+        rect.x,
+        Math.min(
+            px,
+            rect.x + rect.width
+        )
+    );
+
+    const y = Math.max(
+        rect.y,
+        Math.min(
+            py,
+            rect.y + rect.height
+        )
+    );
+
+    return (
+        (px - x) ** 2 +
+        (py - y) ** 2
+    ) < radius ** 2;
+}
+
+
+/* ---------------- GAME LOOP ---------------- */
+
+function gameLoop(currentTime) {
+
+    if (!running) return;
+
+
+    const dt = Math.min(
+        (currentTime - lastTime) / 1000,
+        0.035
+    );
+
+    lastTime = currentTime;
+
+
+    /* Timer */
+
+    timeLeft -= dt;
+
+    document.getElementById("time").textContent =
+        Math.max(0, Math.ceil(timeLeft));
+
+
+    /* Level */
+
+    level =
+        1 +
+        Math.floor((60 - timeLeft) / 15);
+
+
+    /* Movement */
+
+    player.vx = 0;
+
+    if (
+        keys["arrowleft"] ||
+        keys["a"]
+    ) {
+        player.vx = -430;
+    }
+
+    if (
+        keys["arrowright"] ||
+        keys["d"]
+    ) {
+        player.vx = 430;
+    }
+
+
+    if (touchX !== null) {
+
+        player.vx =
+            (touchX - player.x) * 6;
+    }
+
+
+    player.x +=
+        player.vx * dt;
+
+
+    player.x =
+        Math.max(
+            32,
+            Math.min(
+                W - 32,
+                player.x
+            )
+        );
+
+
+    /* Spawn */
+
+    spawnTimer -= dt;
+
+    if (spawnTimer <= 0) {
+
+        spawnTimer =
+            0.48 -
+            Math.min(
+                0.20,
+                level * 0.025
+            );
+
+        spawnItem();
+
+        if (
+            Math.random() <
+            0.24 + level * 0.03
+        ) {
+            spawnObstacle();
+        }
+    }
+
+
+    /* Items */
+
+    for (
+        let i = items.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const item = items[i];
+
+        item.y +=
+            item.speed * dt;
+
+        item.rotation +=
+            dt * 2;
+
+
+        /* Collision */
+
+        if (
+            Math.hypot(
+                item.x - player.x,
+                item.y - player.y
+            ) < item.r + 25
+        ) {
+
+            if (item.type === "bomb") {
+
+                combo = 0;
+
+                score =
+                    Math.max(
+                        0,
+                        score - 40
+                    );
+
+                document.getElementById(
+                    "score"
+                ).textContent = score;
+
+                showMessage(
+                    "💥 Bomb! -40"
+                );
+
+                createParticles(
+                    item.x,
+                    item.y,
+                    "💥"
+                );
+
+            } else {
+
+                const points =
+                    item.type === "modak"
+                    ? 10
+                    : 20;
+
+                addScore(points);
+
+                createParticles(
+                    item.x,
+                    item.y,
+                    item.type === "modak"
+                    ? "✨"
+                    : "🌸"
+                );
+            }
+
+            items.splice(i, 1);
+
+            continue;
+        }
+
+
+        if (item.y > H + 50) {
+
+            if (
+                item.type !== "bomb"
+            ) {
+                combo = 0;
+            }
+
+            items.splice(i, 1);
+        }
+    }
+
+
+    /* Obstacles */
+
+    for (
+        let i = obstacles.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const obstacle = obstacles[i];
+
+        obstacle.y +=
+            obstacle.speed * dt;
+
+
+        if (
+            circleRect(
+                player.x,
+                player.y,
+                23,
+                obstacle
+            )
+        ) {
+
+            combo = 0;
+
+            score =
+                Math.max(
+                    0,
+                    score - 25
+                );
+
+            document.getElementById(
+                "score"
+            ).textContent = score;
+
+            showMessage(
+                "🥥 Obstacle! -25"
+            );
+
+            createParticles(
+                player.x,
+                player.y,
+                "💢"
+            );
+
+            obstacles.splice(i, 1);
+
+            continue;
+        }
+
+
+        if (
+            obstacle.y >
+            H + 60
+        ) {
+            obstacles.splice(i, 1);
+        }
+    }
+
+
+    /* Particles */
+
+    for (
+        let i = particles.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const p = particles[i];
+
+        p.x += p.vx * dt;
+
+        p.y += p.vy * dt;
+
+        p.vy += 250 * dt;
+
+        p.life -= dt;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+
+
+    /* DRAW */
+
+    drawBackground();
+
+    obstacles.forEach(
+        drawObstacle
+    );
+
+    items.forEach(
+        drawItem
+    );
+
+    drawMushak();
+
+
+    /* Level */
+
+    ctx.font =
+        "bold 18px Arial";
+
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = "#6b1b00";
+
+    ctx.fillText(
+        "LEVEL " + level,
+        16,
+        H - 60
+    );
+
+
+    /* Particles */
+
+    for (const p of particles) {
+
+        ctx.globalAlpha =
+            Math.max(
+                0,
+                p.life
+            );
+
+        ctx.font =
+            "22px Arial";
+
+        ctx.fillText(
+            p.symbol,
+            p.x,
+            p.y
+        );
+    }
+
+    ctx.globalAlpha = 1;
+
+
+    /* END */
+
+    if (timeLeft <= 0) {
+
+        endGame();
+
+    } else {
+
+        requestAnimationFrame(
+            gameLoop
+        );
+    }
+}
+
+
+/* ---------------- GAME OVER ---------------- */
+
+function endGame() {
+
+    running = false;
+
+    document.getElementById(
+        "hud"
+    ).classList.add("hidden");
+
+
+    document.getElementById(
+        "screen"
+    ).classList.remove("hidden");
+
+
+    document.querySelector(
+        "#screen .card"
+    ).innerHTML = `
+
+        <div style="font-size:55px">
+            🏆 🪔
+        </div>
+
+        <h1>
+            JAI GANESHA!
+        </h1>
+
+        <h2>
+            Score: ${score}
+        </h2>
+
+        <p>
+            ${
+                score >= 500
+                ? "🔥 Amazing! You have great festival spirit!"
+                : score >= 250
+                ? "👏 Great run! Try to beat your score!"
+                : "🙏 Good start! Play again and improve!"
+            }
+        </p>
+
+        <p>
+            🏆 Best Score:
+            <b>${best}</b>
+        </p>
+
+        <button onclick="startGame()">
+            PLAY AGAIN
+        </button>
+
+        <div class="small">
+            Collect modaks +10 • Flowers +20<br>
+            Avoid obstacles −25 • Bombs −40
+        </div>
+    `;
+}
+
+</script>
+
+
+<script>
+/* ================= 3D + SOUND ENHANCEMENT ================= */
+(function(){
+  // ---------- Sound: generated with Web Audio API, no audio files required ----------
+  let audioCtx = null;
+  let soundOn = true;
+
+  function ensureAudio(){
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+  }
+
+  function tone(freq, duration, type="sine", volume=.055, slide=0){
+    if(!soundOn) return;
+    ensureAudio();
+    const now = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, now);
+    if(slide) o.frequency.linearRampToValueAtTime(Math.max(30,freq+slide), now+duration);
+    g.gain.setValueAtTime(.0001, now);
+    g.gain.exponentialRampToValueAtTime(volume, now+.012);
+    g.gain.exponentialRampToValueAtTime(.0001, now+duration);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(now); o.stop(now+duration+.02);
+  }
+
+  window.modakSound = {
+    collect(){ tone(660,.09,"sine",.06,220); setTimeout(()=>tone(880,.12,"sine",.045,160),45); },
+    flower(){ tone(740,.08,"triangle",.055,260); setTimeout(()=>tone(1040,.14,"triangle",.04,180),55); },
+    bomb(){ tone(130,.22,"sawtooth",.09,-80); setTimeout(()=>tone(70,.25,"square",.05,-20),80); },
+    obstacle(){ tone(180,.15,"square",.055,-70); },
+    start(){ [523,659,784].forEach((f,i)=>setTimeout(()=>tone(f,.14,"triangle",.05),i*90)); },
+    end(){ [784,659,523].forEach((f,i)=>setTimeout(()=>tone(f,.18,"triangle",.045,-80),i*120)); }
+  };
+
+  const sb = document.getElementById("soundBtn");
+  sb.addEventListener("click", ()=>{
+    soundOn = !soundOn;
+    sb.textContent = soundOn ? "🔊" : "🔇";
+    if(soundOn) { ensureAudio(); modakSound.start(); }
+  });
+  document.addEventListener("pointerdown", ()=>{ if(soundOn) ensureAudio(); }, {once:true});
+
+  // ---------- Three.js decorative 3D scene ----------
+  const canvas3 = document.getElementById("threeLayer");
+  let renderer, scene, camera, group;
+  const falling = [];
+
+  function makeModak(){
+    const geo = new THREE.ConeGeometry(18, 30, 10);
+    const mat = new THREE.MeshStandardMaterial({color:0xffd54a, roughness:.55, metalness:.08});
+    const m = new THREE.Mesh(geo,mat);
+    m.rotation.x = Math.PI;
+    return m;
+  }
+
+  function makeFlower(){
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({color:0xe83d2e, roughness:.6});
+    for(let i=0;i<6;i++){
+      const p = new THREE.Mesh(new THREE.SphereGeometry(7,10,8),mat);
+      const a=i*Math.PI/3;
+      p.position.set(Math.cos(a)*9, Math.sin(a)*9, 0);
+      p.scale.set(.7,1.35,.45);
+      g.add(p);
+    }
+    const c = new THREE.Mesh(
+      new THREE.SphereGeometry(6,12,8),
+      new THREE.MeshStandardMaterial({color:0xffd34e,roughness:.5})
+    );
+    g.add(c);
+    return g;
+  }
+
+  function makeBomb(){
+    const g = new THREE.Group();
+    const b = new THREE.Mesh(
+      new THREE.SphereGeometry(14,16,12),
+      new THREE.MeshStandardMaterial({color:0x222222,roughness:.75})
+    );
+    g.add(b);
+    const fuse = new THREE.Mesh(
+      new THREE.CylinderGeometry(2,2,9,8),
+      new THREE.MeshStandardMaterial({color:0x9b6b3d})
+    );
+    fuse.position.y=15; fuse.rotation.z=.3; g.add(fuse);
+    return g;
+  }
+
+  function init3D(){
+    if(!window.THREE) return;
+    renderer = new THREE.WebGLRenderer({canvas:canvas3,alpha:true,antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    renderer.setSize(innerWidth,innerHeight);
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(55,innerWidth/innerHeight,.1,2000);
+    camera.position.set(0,0,520);
+    group = new THREE.Group();
+    scene.add(group);
+
+    scene.add(new THREE.AmbientLight(0xffffff,1.6));
+    const light = new THREE.DirectionalLight(0xffd37a,2.2);
+    light.position.set(-150,250,400);
+    scene.add(light);
+
+    // Floating 3D festival lamps/decorations
+    for(let i=0;i<18;i++){
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(5+Math.random()*3,10,8),
+        new THREE.MeshStandardMaterial({color:i%2?0xffb300:0xe85d2a,emissive:0x331000})
+      );
+      m.position.set((Math.random()-.5)*innerWidth, (Math.random()-.5)*innerHeight, -40-Math.random()*120);
+      group.add(m);
+    }
+    animate3D();
+  }
+
+  function animate3D(){
+    requestAnimationFrame(animate3D);
+    if(!renderer) return;
+    group.rotation.y += .0007;
+    group.children.forEach((m,i)=>{
+      m.rotation.x += .004 + (i%3)*.001;
+      m.rotation.y += .006;
+      m.position.y += Math.sin(performance.now()*.001+i)*.03;
+    });
+    renderer.render(scene,camera);
+  }
+
+  window.addEventListener("resize",()=>{
+    if(!renderer) return;
+    renderer.setSize(innerWidth,innerHeight);
+    camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  // Hook into the game's scoring/end/start functions without changing core gameplay.
+  const oldStart = window.startGame;
+  window.startGame = function(){
+    if(soundOn) modakSound.start();
+    oldStart();
+  };
+
+  const oldAdd = window.addScore;
+  window.addScore = function(amount){
+    if(amount >= 20) modakSound.flower();
+    else modakSound.collect();
+    oldAdd(amount);
+  };
+
+  const oldEnd = window.endGame;
+  window.endGame = function(){
+    if(soundOn) modakSound.end();
+    oldEnd();
+  };
+
+  // Detect score messages for negative events.
+  const observer = new MutationObserver(()=>{
+    const t = (document.getElementById("message")?.textContent || "");
+    if(t.includes("Bomb")) modakSound.bomb();
+    else if(t.includes("Obstacle")) modakSound.obstacle();
+  });
+  observer.observe(document.getElementById("message"),{childList:true,subtree:true,characterData:true});
+
+  init3D();
+})();
+</script>
+
+</body>
+</html>
